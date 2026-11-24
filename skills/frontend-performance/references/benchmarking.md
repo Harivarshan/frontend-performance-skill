@@ -1,20 +1,38 @@
-# Benchmark a frontend pipeline change
+# Design a benchmark that can change the decision
 
-Write down the metric and the decision threshold before running an expensive comparison. Choose a meaningful threshold for the project's wait, cost or reliability goal and its observed variation.
+## Choose the experiment before seeing the results
 
-- Record exact source, dependency lock and tool versions, build inputs, runner class and architecture, and expected validation outputs. For cache tests, identify the seed and record which parts start cold, reuse dependencies, or reuse compiler state. Treat seed creation and required transfer as part of the operational cost where relevant.
-- Compare one changed variable. Reuse a frozen cache seed or immutable artifact so that the first arm's output cannot improve the second. Use independent workspaces and explicit cache namespaces. Match runner resources and counterbalance order when practical. Same-host sequential runs reduce machine variation but can still differ because of file caches, thermal load or lingering processes. Separate cold and warm claims.
-- Preserve test identities, check outcomes and relevant build outputs. Record platform, actual restore status, step time, total elapsed time, retry behavior, and any expected trade-off such as archive size or runner allocation. Reject unmatched comparisons and report failed or incomplete attempts with the reason they were excluded from the latency sample.
-- Calculate savings as baseline elapsed time minus candidate elapsed time. For paired samples, summarize the individual differences and show their range. Use a median and range for small samples. Repeated historical observations on varying commits can describe what developers see in practice. Reserve causal claims for a comparison that isolates the change.
+State the hypothesis in terms of work removed. “Changing the cache codec should reduce archive handling and transfer” is testable. “Modernizing CI should save minutes” leaves too many causal possibilities.
 
-When measuring developer wait, also track elapsed time from the first CI trigger for a given revision to the first passing set of required checks. Include queueing, failed attempts and reruns for that revision. Report revisions that never passed or were superseded alongside the completed times. Keep this measure separate from successful-attempt latency.
+Set one primary metric and practical decision threshold. Use wall time for developer wait, the maximum shard path for parallel tests, allocation for resource cost, and a spread or reliability measure where outliers matter. Add correctness and operational guardrails, such as equivalent tests, unchanged maximum memory, and no additional retry or transfer cost. Choose thresholds in context. A five-second saving on an unstable ten-minute job warrants more evidence than the same saving in a repeatable local loop.
 
-### Worked example with synthetic data
+| Hypothesis | Control | Candidate | Record |
+| --- | --- | --- | --- |
+| Smaller inner archives reduce build time | Existing codec, frozen decoded contents | New codec, same contents and modes | Pack, extract, upload, download, total cycle, bytes |
+| Dependency retention survives source/config churn | Cold dependencies and compiler | Same cold compiler, compatible restored dependencies | Reuse proof, time and seed/export cost |
+| TypeScript incremental state removes checking work | Fixed compiler cache with only TypeScript state absent | Identical state with TypeScript data present | Build/type phases, generated inputs, diagnostics |
+| Browser readiness fix prevents full test restarts | Existing scoped condition | Candidate scoped condition, same tests and workers | First-attempt readiness, retries, final outcome, slowest shard |
+| Release build cache shortens deployment | Current builder or isolated cold state | Candidate cache path on equivalent inputs | Exact image checks, build and cache costs, verified release elapsed |
 
-After setup, assume image validation and browser verification start together. The baseline image job takes 7m30s, the browser lane finishes at 8m40s including its report, and a final gate takes 15s. Complete CI takes 8m55s. Reducing the image job to 6m45s saves 45s of one runner's work. Complete CI stays at 8m55s if the other timings and dependencies stay the same.
+## Control what can move the result
 
-Suppose three paired experiments show image-job savings of 18s, 42s and 51s. Report a 42s median and an 18–51s range. Include equivalent check outcomes and state that the browser lane controlled total feedback time in this example. In another run, the image job can control the wait if it finishes last.
+- Freeze source, lockfile, tool versions, runner resources, build arguments, validation and the relevant cache seed. Set up the test so the reset between arms leaves build outputs and caches in the intended state.
+- Vary one thing. Give arms isolated workspaces, output tags and cache namespaces. Pin an immutable seed so one arm's output does not warm the other. On one host, account for OS page cache, process leftovers and host load. When order can bias the result, alternate the order or counterbalance it across pairs.
+- Use same-host container or local probes to isolate a mechanism. Compare Linux architecture, memory, CPU and network before extrapolating from a laptop or an emulator to a hosted runner. Validate actual CI transfer separately if the probe avoids CI's cache backend.
+- Pair comparable hosted observations and record actual runner class and resource differences. If hardware, inputs or cache state diverge materially, show those results as separate observations. Keep failed benchmark attempts and reasons visible.
+- Make correctness observable. Verify the checked-out tree, actual cache key/audited seed, test identities and outcomes, and the produced image or assets. Define which properties must match. Byte-for-byte equality can be inappropriate for outputs with build IDs or timestamps, so check the required behavior and artifact identity within each arm.
+- Size the sample from variation and expected benefit. Repeated pairs help reveal order effects and outliers. Small samples support a median and range, with a narrower claim than a stable percentile or reliability estimate.
 
-### Results to hand back
+## Interpret the results
 
-Use the level of detail the user needs. Include the target and critical path, the phase that changed, before and after timings with sample size and range, what was held fixed, correctness evidence, and the smallest relevant follow-up. A normal CI or deployment run verifies the real route. A separate matched comparison measures the performance effect.
+Calculate each paired saving as baseline elapsed minus candidate elapsed. Report the median and range of paired differences, and name what the interval includes. When the metric is end-to-end, include setup and transfer the real path will pay. For a narrower diagnostic, explicitly state the excluded costs.
+
+For developer wait, follow a revision from its first CI trigger to its first passing set of required checks, including failures and reruns. Choose an observation window before measuring. Report how many revisions passed by that deadline, how many never passed in the window, and how many were superseded. Compute paired latency only for matching completed observations and show the remaining outcomes alongside it. Set an acceptable passing fraction or retry rate in advance so faster surviving attempts cannot mask worse reliability.
+
+- **Adopt** when the measured effect clears the useful threshold with equivalent validation and acceptable small-sample uncertainty.
+- **Refine or repeat** when traces support the mechanism but runner, cache, correctness or sample differences make the total ambiguous. Add the smallest control that resolves the ambiguity.
+- **Keep the baseline** when the candidate removes little net work, shifts the cost elsewhere, or weakens correctness or reliability. State which hypothesis the experiment actually tested.
+
+## Verify after rollout
+
+Where authorized, observe a real run on the new revision. A changed cache format may first read a legacy cache or run cold and write the new state. Find a later normal run that actually reads the new state before claiming warm reuse. Compare multiple ordinary runs before attributing a sustained trend. Keep checkout identity, queueing, retries and validation visible on branches or environments where the path differs.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Frontend Performance"
   short_description: "Measure and improve frontend build and CI speed"
-  default_prompt: "Use $frontend-performance to find what makes this frontend CI slow and propose a measured improvement."
+  default_prompt: "Use $frontend-performance to research what makes this frontend CI slow and design a controlled test of the best improvement."
